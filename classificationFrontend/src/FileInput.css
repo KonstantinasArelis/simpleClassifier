@@ -14,6 +14,7 @@
   .isDragging {
     border-color: #007bff;
     background-color: #f0f8ff; /* Light blue background when dragging */
+    animation: drop-shadow infinite 1s ease-in-out alternate;
   }
   
   .customButton {
@@ -44,4 +45,13 @@
     height: 0;
     opacity: 0;
     cursor: pointer;
+  }
+
+  @keyframes drop-shadow {
+    from {
+      filter: drop-shadow(0 0 5px #ffffffaa);
+    }
+    to {
+      filter: drop-shadow(0 0 10px #ffffffaa);
+    }
   }

@@ -1,6 +1,4 @@
-import { useState, useEffect } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 import FileInput from './FileInput.jsx'
 
@@ -8,6 +6,9 @@ function App() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageLabel, setImageLabel] = useState(null);
   const [labelProbability, setLabelProbability] = useState(null);
+  const imageLabelref = useRef(null);
+  const labelProbabilityref = useRef(null);
+
 
   const handleFileSelected = (file) => {
     console.log('Selected file:', file);
@@ -21,6 +22,27 @@ function App() {
     }
   }, [selectedImage])
 
+  useEffect(() => {
+    if(imageLabelref.current){
+      imageLabelref.current.classList.add("imageLabel");
+      
+      setTimeout(() => {
+        imageLabelref.current.classList.remove("imageLabel");
+      }, 2000)
+    }
+  }, [imageLabel])
+
+  useEffect(() => {
+    setTimeout(() => {
+      if(labelProbabilityref.current){
+              labelProbabilityref.current.classList.add("labelProbability");
+              setTimeout(() => {
+                labelProbabilityref.current.classList.remove("labelProbability");
+              }, 2000)
+            }
+    },500)
+  }, [labelProbability])
+  
   const handleUpload = async () => {
     if (!selectedImage) {
       alert('Please select an image first.');
@@ -58,12 +80,12 @@ function App() {
     <>
       {imageLabel && (
         <div>
-          <h1>Its a {imageLabel}!</h1>
-          <h2>{labelProbability} %</h2>
+          <h1 ref={imageLabelref}>Its a {imageLabel}!</h1>
+          <h3 ref={labelProbabilityref}>{labelProbability} %</h3>
         </div>
       )}
       {!imageLabel && (
-        <h1>Image classifier</h1>
+        <h1>Image Classifier</h1>
       )}
       <div className="card">
         
@@ -75,7 +97,10 @@ function App() {
           <img className='selectedImage' src={URL.createObjectURL(selectedImage)} alt="Selected"></img>
         </div>
         )}
+        {!selectedImage && (<div className='imagePlaceholder'/>)}
       </div>
+
+      <footer>Konstantinas Arelis</footer>
     </>
   )
 }

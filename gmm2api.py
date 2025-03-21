@@ -1,3 +1,4 @@
+#flask --app gmm2api.py run
 from flask import Flask, request, jsonify
 from PIL import Image
 import torch
