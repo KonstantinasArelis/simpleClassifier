@@ -1,12 +1,3 @@
-#python3 -m venv .venv
-#. .venv/bin/activate
-#pip install Flask
-#pip install Pillow
-#pip install torch
-#pip install torchvision
-#pip install flask_cors
-#pip install "numpy<2"
-#flask --app gmm2api.py run
 # python3 -m venv .venv
 # . .venv/bin/activate
 # pip install Flask Pillow torch torchvision flask_cors "numpy<2" numpy
@@ -45,13 +36,15 @@ except Exception as e:
 model_clf.to(device)
 model_clf.eval()
 
-# Define classification preprocessing steps
-transform_clf = transforms.Compose([ # Rename to avoid conflict
-    transforms.Resize(36),
-    transforms.CenterCrop(32),
+# Define classification preprocessing steps - REVERTED TO ORIGINAL
+print(f"Defining classification transforms (Original: Resize(36)/CenterCrop(32))")
+transform_clf = transforms.Compose([
+    transforms.Resize(36),      # Original resize
+    transforms.CenterCrop(32),  # Original crop
     transforms.ToTensor(),
-    # Add normalization if your model was trained with it
-    # transforms.Normalize(mean=[...], std=[...])
+    # Add normalization if your model was trained with it.
+    # Example for ImageNet:
+    # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
 # Class names (for CIFAR-10 - adjust if your model uses different classes)
@@ -67,7 +60,6 @@ SEG_MODEL_PATH = "deeplabv3_resnet50_voc2012.pth" # <--- CHANGE THIS TO YOUR FIL
 NUM_SEG_CLASSES = 21
 
 # Instantiate the DeepLabV3 ResNet50 model structure *without* pre-trained weights
-# IMPORTANT: Specify the number of classes your custom model outputs
 model_seg = segmentation.deeplabv3_resnet50(weights=None, num_classes=NUM_SEG_CLASSES)
 print(f"Segmentation model structure created (num_classes={NUM_SEG_CLASSES}).")
 
@@ -87,50 +79,25 @@ except Exception as e:
     print(f"The segmentation endpoint will likely fail or produce random results.")
     print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-
 model_seg.to(device)
 model_seg.eval()
 
-# --- IMPORTANT: Preprocessing for Custom Model ---
-# You MUST use the SAME preprocessing steps here as you used during the
-# training of your custom model saved in SEG_MODEL_PATH.
-# If you fine-tuned the standard torchvision model and used its default transforms,
-# you can get them like this:
-try:
-    weights_helper = segmentation.DeepLabV3_ResNet50_Weights.COCO_WITH_VOC_LABELS
-    preprocess_seg = weights_helper.transforms()
-    print("Using standard torchvision preprocessing for segmentation model.")
-    # If your training used different normalization, resizing, etc., define it manually:
-    # preprocess_seg = transforms.Compose([
-    #     transforms.Resize(...), # Use the size your model expects
-    #     transforms.ToTensor(),
-    #     transforms.Normalize(mean=[YOUR_MEAN_R, YOUR_MEAN_G, YOUR_MEAN_B],
-    #                          std=[YOUR_STD_R, YOUR_STD_G, YOUR_STD_B]),
-    # ])
-    # print("Using CUSTOM preprocessing steps for segmentation model.")
-except Exception as e:
-     print(f"Could not get standard transforms, define preprocessing manually if needed. Error: {e}")
-     # Define a minimal fallback if weights can't be loaded
-     preprocess_seg = transforms.Compose([transforms.ToTensor()])
+SEG_MEAN = [0.485, 0.456, 0.406]
+SEG_STD = [0.229, 0.224, 0.225]
+SEG_TARGET_IMG_SIZE = (256, 256)
+SEG_INTERPOLATION = transforms.InterpolationMode.BILINEAR
+print(f"Defining segmentation transforms with resize to {SEG_TARGET_IMG_SIZE}")
+print(f"Using EXPLICIT normalization mean={SEG_MEAN}, std={SEG_STD} for segmentation.")
+preprocess_seg = transforms.Compose([
+    transforms.Resize(SEG_TARGET_IMG_SIZE, interpolation=SEG_INTERPOLATION), # Explicit size and interpolation
+    transforms.ToTensor(),              # Convert PIL [0,255] to Tensor [0,1]
+    transforms.Normalize(mean=SEG_MEAN, std=SEG_STD) # Use explicit constants
+])
 
-
-# --- Class Names and Palette (Assumes Standard VOC) ---
-# These should also match your training setup. If you used the standard
-# 21 VOC classes in the standard order, this should be correct.
-# If your classes or their order differ, you MUST update class_names_seg
-# and voc_palette accordingly.
-try:
-    weights_helper = segmentation.DeepLabV3_ResNet50_Weights.COCO_WITH_VOC_LABELS
-    class_names_seg = weights_helper.meta["categories"]
-    print(f"Using standard VOC class names for segmentation: {class_names_seg}")
-except Exception as e:
-    print(f"Could not get standard VOC class names. Using placeholder names.")
-    # Fallback if weights meta can't be read
-    class_names_seg = [f"Class_{i}" for i in range(NUM_SEG_CLASSES)]
-
+# --- Define Palette and Class Names for Segmentation ---
 
 # Create a color palette for VOC classes (21 classes including background)
-# Ensure this matches the order and number of your NUM_SEG_CLASSES
+# Ensure this order matches the class indices your model outputs (0-20)
 voc_palette = [
     (0, 0, 0),       # 0=background
     (128, 0, 0),     # 1=aeroplane
@@ -154,33 +121,68 @@ voc_palette = [
     (128, 192, 0),   # 19=train
     (0, 64, 128)     # 20=tv/monitor
 ]
-# Adjust palette size if NUM_SEG_CLASSES is different
+
+# Define the corresponding class names IN THE SAME ORDER as the palette
+class_names_seg = [
+    "background", "aeroplane", "bicycle", "bird", "boat", "bottle",
+    "bus", "car", "cat", "chair", "cow", "dining table", "dog",
+    "horse", "motorbike", "person", "potted plant", "sheep", "sofa",
+    "train", "tv/monitor"
+]
+
+# --- Sanity Checks ---
 if len(voc_palette) != NUM_SEG_CLASSES:
-    print(f"Warning: Palette length ({len(voc_palette)}) doesn't match NUM_SEG_CLASSES ({NUM_SEG_CLASSES}). Adjust palette.")
-    # Simple fallback: repeat black or generate random colors if needed
-    voc_palette = voc_palette[:NUM_SEG_CLASSES] + [(0,0,0)] * (NUM_SEG_CLASSES - len(voc_palette))
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print(f"CRITICAL WARNING: Palette length ({len(voc_palette)}) doesn't match NUM_SEG_CLASSES ({NUM_SEG_CLASSES}).")
+    print(f"Adjust palette or NUM_SEG_CLASSES. Mask colors and detected class info will be incorrect.")
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    # Attempt to pad/truncate for basic functionality, but results will be wrong
+    if len(voc_palette) < NUM_SEG_CLASSES:
+        voc_palette += [(0,0,0)] * (NUM_SEG_CLASSES - len(voc_palette))
+    else:
+        voc_palette = voc_palette[:NUM_SEG_CLASSES]
+
+if len(class_names_seg) != NUM_SEG_CLASSES:
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print(f"CRITICAL WARNING: Class names list length ({len(class_names_seg)}) doesn't match NUM_SEG_CLASSES ({NUM_SEG_CLASSES}).")
+    print(f"Adjust class names list or NUM_SEG_CLASSES. Detected class info will be incorrect.")
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    # Attempt to pad/truncate for basic functionality, but results will be wrong
+    if len(class_names_seg) < NUM_SEG_CLASSES:
+        class_names_seg += [f"Unknown_{i}" for i in range(len(class_names_seg), NUM_SEG_CLASSES)]
+    else:
+        class_names_seg = class_names_seg[:NUM_SEG_CLASSES]
+# Remove the old class_label_map as it's replaced by class_names_seg
+# class_label_map = [ ... ] # This is no longer needed and was incorrectly formatted
 
 
 # --- Helper Function for Segmentation Output ---
-# (No changes needed in this function itself)
+# (No changes needed in this function itself, relies on correct palette)
 def create_segmentation_mask(pred_mask_tensor, palette):
     """Creates a colored PIL image mask from a prediction tensor."""
     h, w = pred_mask_tensor.shape
     rgb_mask = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    # Ensure palette length matches or exceeds max class index
-    max_idx = pred_mask_tensor.max().item()
-    if max_idx >= len(palette):
-        print(f"Warning: Max predicted index ({max_idx}) is out of bounds for palette size ({len(palette)}). Some classes may render as black.")
-        # Extend palette with black if needed for safety
-        palette = palette + [(0,0,0)] * (max_idx - len(palette) + 1)
+
+    # Use the provided palette length for bounds checking
+    palette_len = len(palette)
+    max_idx = pred_mask_tensor.max().item() # Find the highest index actually present
+
+    if max_idx >= palette_len:
+        print(f"Warning in create_segmentation_mask: Max predicted index ({max_idx}) is out of bounds for palette size ({palette_len}). Some classes may render as black.")
+        # Optionally pad the palette dynamically for rendering, though this indicates a mismatch upstream
+        # palette = palette + [(0,0,0)] * (max_idx - palette_len + 1)
+        # palette_len = len(palette) # Update length if padded
 
     for class_idx, color in enumerate(palette):
-        if class_idx > max_idx: # Optimization: stop if beyond max predicted index
-             break
-        mask = pred_mask_tensor == class_idx
-        rgb_mask[mask] = color
-        
+        # Optimization: Only check indices up to the max found index if needed,
+        # but iterating through the whole defined palette is safer for consistency.
+        # if class_idx > max_idx:
+        #      break
+        if class_idx < palette_len: # Ensure we don't go out of bounds of the original palette
+            mask = pred_mask_tensor == class_idx
+            rgb_mask[mask] = color
+        # Pixels with indices >= palette_len will remain black (0,0,0) by default
+
     return Image.fromarray(rgb_mask)
 
 # --- API Endpoints ---
@@ -193,13 +195,20 @@ def classify_image():
     image_file = request.files['image']
     try:
         image = Image.open(image_file).convert('RGB')
+        # Apply original classification transforms (Resize(36)/CenterCrop(32))
         image_tensor = transform_clf(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
             output = model_clf(image_tensor)
             probabilities = torch.nn.functional.softmax(output, dim=1)
             confidence, predicted_idx = torch.max(probabilities, 1)
-            predicted_class = class_names_clf[predicted_idx.item()]
+            # Check index bounds before accessing class name
+            if 0 <= predicted_idx.item() < len(class_names_clf):
+                predicted_class = class_names_clf[predicted_idx.item()]
+            else:
+                predicted_class = f"Unknown_Index_{predicted_idx.item()}"
+                print(f"Warning: Classification index {predicted_idx.item()} out of bounds for class names list (len={len(class_names_clf)}).")
+
 
         return jsonify({
             'predicted_class': predicted_class,
@@ -217,37 +226,58 @@ def segment_image():
     image_file = request.files['image']
     try:
         input_image = Image.open(image_file).convert('RGB')
-        
-        # Apply segmentation preprocessing (CRITICAL: must match training)
+
+        # Apply segmentation preprocessing
         input_batch = preprocess_seg(input_image).unsqueeze(0).to(device)
 
         with torch.no_grad():
             output = model_seg(input_batch)['out']
-        
-        output_predictions = output.argmax(1).squeeze(0).cpu()
 
-        # Create colored mask (CRITICAL: palette must match classes)
+        # Get the predicted class index for each pixel
+        output_predictions = output.argmax(1).squeeze(0).cpu() # Shape: [H, W]
+
+        # Create the colored mask image using the correct palette
         mask_image = create_segmentation_mask(output_predictions, voc_palette)
 
+        # Encode the mask image to base64
         buffered = io.BytesIO()
         mask_image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        
-        # Get detected classes (CRITICAL: class_names_seg must match classes)
-        detected_indices = torch.unique(output_predictions).tolist()
-        detected_classes = []
-        for i in detected_indices:
-             if i < len(class_names_seg):
-                 detected_classes.append(class_names_seg[i])
-             else:
-                 detected_classes.append(f"Unknown_Class_{i}") # Handle unexpected index
 
+        # --- Get detected class info (index, name, color) ---
+        detected_indices = torch.unique(output_predictions).tolist() # Get unique class indices present in the mask
+        detected_class_info = [] # List to store info for each detected class
+
+        for index in detected_indices:
+            class_info = {'index': index}
+
+            # Get Class Name based on index
+            if 0 <= index < len(class_names_seg):
+                class_info['name'] = class_names_seg[index]
+            else:
+                # Handle cases where the model predicts an index outside the defined range
+                class_info['name'] = f"Unknown_Class_{index}"
+                print(f"Warning: Detected segmentation index {index} is out of bounds for class names list (len={len(class_names_seg)}).")
+
+            # Get Color based on index
+            if 0 <= index < len(voc_palette):
+                # Convert tuple to list for JSON serialization
+                class_info['color'] = list(voc_palette[index])
+            else:
+                 # Handle cases where the index is outside the palette range
+                class_info['color'] = [0, 0, 0] # Default to black
+                print(f"Warning: Detected segmentation index {index} is out of bounds for palette list (len={len(voc_palette)}). Using black.")
+
+            detected_class_info.append(class_info)
+
+        # Sort the detected classes by index for consistency (optional)
+        detected_class_info.sort(key=lambda x: x['index'])
 
         return jsonify({
             'segmentation_mask': f'data:image/png;base64,{img_str}',
-            'detected_classes': detected_classes
+            'detected_classes': detected_class_info # Return the list of detected class details
         })
-    
+
     except Exception as e:
         app.logger.error(f"Segmentation Error: {e}", exc_info=True)
         return jsonify({'error': f'Error during segmentation: {str(e)}'}), 500
