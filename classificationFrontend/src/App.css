@@ -54,3 +54,20 @@
     transform: rotateZ(0deg)
   }
 }
+
+/* Simple CSS animation for spinning */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Apply the animation to the class */
+.icon-spin {
+  animation: spin 1s linear infinite; /* Adjust duration as needed */
+  margin-left: 8px; /* Optional spacing */
+  vertical-align: middle; /* Optional alignment */
+}
